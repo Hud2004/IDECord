@@ -1,3 +1,5 @@
+<img width="374" height="163" alt="스크린샷 2026-05-18 오후 10 19 21" src="https://github.com/user-attachments/assets/3f5c973b-7b69-49ae-b999-1c5c0700016d" />
+<img width="532" height="684" alt="스크린샷 2026-05-18 오후 10 19 52" src="https://github.com/user-attachments/assets/67a1b15c-edf7-4e88-be33-d551c7d83b21" />
 # IDECord
 
 Discord Rich Presence for your IDE — a single macOS menu bar app that works across multiple IDEs.
