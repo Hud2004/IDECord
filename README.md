@@ -1,10 +1,12 @@
-# IDECord
+<div align="center">
+  <img src="IDECord/Assets.xcassets/AppIcon.appiconset/icon_512x512.png" width="128" height="128" alt="IDECord">
+  <h1>IDECord</h1>
+  <p>Discord Rich Presence for your IDE — a single macOS menu bar app that works across multiple IDEs.</p>
 
-Discord Rich Presence for your IDE — a single macOS menu bar app that works across multiple IDEs.
-
-![macOS](https://img.shields.io/badge/macOS-14.0+-000000?logo=apple)
-![Swift](https://img.shields.io/badge/Swift-5.9+-orange?logo=swift)
-![License](https://img.shields.io/github/license/Hud2004/IDECord)
+  ![macOS](https://img.shields.io/badge/macOS-14.0+-000000?logo=apple)
+  ![Swift](https://img.shields.io/badge/Swift-5.9+-orange?logo=swift)
+  ![License](https://img.shields.io/github/license/Hud2004/IDECord)
+</div>
 
 ---
 
