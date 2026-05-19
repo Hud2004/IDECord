@@ -5,9 +5,10 @@ final class DiscordRPCClient: @unchecked Sendable {
 
     private var socketFd: Int32 = -1
     let clientId: String
-    private(set) var sessionStartTime: Date?
 
     var isConnected: Bool { socketFd != -1 }
+
+    deinit { if socketFd != -1 { Darwin.close(socketFd) } }
 
     private enum Opcode: UInt32 {
         case handshake = 0, frame = 1, close = 2
@@ -39,9 +40,13 @@ final class DiscordRPCClient: @unchecked Sendable {
         socketFd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard socketFd != -1 else { throw RPCError.socketCreationFailed }
 
-        var tv = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-        setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        var nosigpipe: Int32 = 1
+        setsockopt(socketFd, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, socklen_t(MemoryLayout<Int32>.size))
+
+        // 2s timeout for the initial handshake — Discord can be slow after rapid reconnects
+        var tvSlow = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &tvSlow, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &tvSlow, socklen_t(MemoryLayout<timeval>.size))
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -60,29 +65,37 @@ final class DiscordRPCClient: @unchecked Sendable {
             throw RPCError.connectionFailed(e)
         }
 
-        try send(opcode: .handshake, payload: ["v": 1, "client_id": clientId])
-        try readPacket()    // expect READY
-        sessionStartTime = Date()
+        do {
+            try send(opcode: .handshake, payload: ["v": 1, "client_id": clientId])
+            try readPacket()    // expect READY
+        } catch {
+            Darwin.close(socketFd); socketFd = -1
+            throw error
+        }
+
+        // READY received — use a short timeout for all subsequent ACK reads
+        var tvFast = timeval(tv_sec: 0, tv_usec: 100_000)
+        setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &tvFast, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &tvFast, socklen_t(MemoryLayout<timeval>.size))
     }
 
     func disconnect() {
         guard socketFd != -1 else { return }
         Darwin.close(socketFd); socketFd = -1
-        sessionStartTime = nil
     }
 
     func setActivity(_ activity: RPCActivity?) throws {
         var args: [String: Any] = ["pid": Int(ProcessInfo.processInfo.processIdentifier)]
         if let a = activity {
             var dict: [String: Any] = ["details": a.details]
-            if let s = a.state { dict["state"] = s }
-            if let t = sessionStartTime { dict["timestamps"] = ["start": Int(t.timeIntervalSince1970)] }
+            if let s = a.state   { dict["state"] = s }
+            if let t = a.startTime { dict["timestamps"] = ["start": Int(t.timeIntervalSince1970)] }
             dict["assets"] = ["large_image": a.largeImage, "large_text": a.largeText]
             args["activity"] = dict
         }
         let payload: [String: Any] = ["cmd": "SET_ACTIVITY", "args": args, "nonce": UUID().uuidString]
         try send(opcode: .frame, payload: payload)
-        try? readPacket()   // 응답은 non-critical — 타임아웃으로 연결이 끊기지 않도록
+        _ = try? readPacket()   // Drain ACK — 100ms max wait
     }
 
     // MARK: - Private
@@ -103,7 +116,7 @@ final class DiscordRPCClient: @unchecked Sendable {
         var header = [UInt8](repeating: 0, count: 8)
         guard recv(socketFd, &header, 8, MSG_WAITALL) == 8 else { throw RPCError.readFailed }
         let length = Int(UInt32(header[4]) | UInt32(header[5]) << 8 | UInt32(header[6]) << 16 | UInt32(header[7]) << 24)
-        guard length >= 0, length < 65536 else { throw RPCError.readFailed }
+        guard length > 0, length < 65536 else { throw RPCError.readFailed }
         var body = [UInt8](repeating: 0, count: length)
         guard recv(socketFd, &body, length, MSG_WAITALL) == length else { throw RPCError.readFailed }
         return Data(body)
@@ -124,4 +137,5 @@ struct RPCActivity {
     let state: String?
     let largeImage: String
     let largeText: String
+    let startTime: Date?    // Passed from ActivityService — persists across reconnects
 }

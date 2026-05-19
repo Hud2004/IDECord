@@ -4,6 +4,8 @@ struct IDERowView: View {
     let ide: IDEInfo
     let isRunning: Bool
     let onToggle: (Bool) -> Void
+    @AppStorage("appLanguage") private var lang: String = "ko"
+    private var en: Bool { lang == "en" }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -22,10 +24,10 @@ struct IDERowView: View {
                         Circle()
                             .fill(.green)
                             .frame(width: 6, height: 6)
-                        Text("실행 중")
+                        Text(en ? "Running" : "실행 중")
                             .foregroundStyle(.green)
                     } else {
-                        Text("실행 안 됨")
+                        Text(en ? "Not Running" : "실행 안 됨")
                             .foregroundStyle(.secondary)
                     }
                 }

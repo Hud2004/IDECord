@@ -2,10 +2,15 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(ActivityService.self) var service
+    @AppStorage("appLanguage") private var lang: String = "ko"
+    private var en: Bool { lang == "en" }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if !service.isAccessibilityGranted {
+                accessibilityWarning
+            }
             Divider()
             ideList
             Divider()
@@ -15,6 +20,30 @@ struct ContentView: View {
     }
 
     // MARK: - Sections
+
+    private var accessibilityWarning: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(en ? "Accessibility permission required" : "접근성 권한이 필요합니다")
+                    .font(.caption.bold())
+                Text(en ? "Grant permission in Settings → Permissions" : "설정 → 권한에서 허용해주세요")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(en ? "Settings" : "설정") {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.orange.opacity(0.1))
+    }
 
     private var header: some View {
         HStack(spacing: 12) {
@@ -73,7 +102,7 @@ struct ContentView: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            Button(service.isRunning ? "중지" : "시작") {
+            Button(service.isRunning ? (en ? "Stop" : "중지") : (en ? "Start" : "시작")) {
                 if service.isRunning { service.stop() } else { service.start() }
             }
             .buttonStyle(.borderedProminent)
@@ -85,9 +114,9 @@ struct ContentView: View {
 
     private var statusText: String {
         switch service.connectionStatus {
-        case .disconnected:     return "연결 안 됨"
-        case .connecting:       return "Discord에 연결 중..."
-        case .connected:        return "Discord에 연결됨"
+        case .disconnected:     return en ? "Not Connected" : "연결 안 됨"
+        case .connecting:       return en ? "Connecting to Discord..." : "Discord에 연결 중..."
+        case .connected:        return en ? "Connected to Discord" : "Discord에 연결됨"
         case .error(let msg):   return msg
         }
     }
@@ -100,8 +129,6 @@ struct ContentView: View {
         case .disconnected: return .gray
         }
     }
-
-
 }
 
 #Preview {

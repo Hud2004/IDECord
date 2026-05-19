@@ -10,20 +10,9 @@ final class IDEMonitor {
         let largeImage: String
     }
 
-    struct Status {
-        let bundleId: String
-        let isRunning: Bool
-        let activity: Activity?
-    }
-
-    func check(_ ide: IDEInfo) -> Status {
-        guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == ide.id }) else {
-            return Status(bundleId: ide.id, isRunning: false, activity: nil)
-        }
-        let pid = app.processIdentifier
+    func activity(for ide: IDEInfo, pid: pid_t) -> Activity {
         let title = windowTitle(pid: pid)
-        let activity = parse(title: title, pid: pid, ide: ide)
-        return Status(bundleId: ide.id, isRunning: true, activity: activity)
+        return parse(title: title, pid: pid, ide: ide)
     }
 
     // MARK: - Accessibility
@@ -31,6 +20,15 @@ final class IDEMonitor {
     private func frontWindow(pid: pid_t) -> AXUIElement? {
         let axApp = AXUIElementCreateApplication(pid)
         var ref: CFTypeRef?
+        // kAXMainWindowAttribute works even when the IDE is in the background.
+        // kAXFocusedWindowAttribute only works when the app currently has keyboard focus.
+        for attr in [kAXMainWindowAttribute, kAXFocusedWindowAttribute] as [String] {
+            if AXUIElementCopyAttributeValue(axApp, attr as CFString, &ref) == .success,
+               let w = ref, CFGetTypeID(w) == AXUIElementGetTypeID() {
+                return unsafeBitCast(w, to: AXUIElement.self)
+            }
+        }
+        // Last resort: first window from the windows list
         guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &ref) == .success,
               let windows = ref as? [AXUIElement] else { return nil }
         return windows.first
@@ -59,10 +57,10 @@ final class IDEMonitor {
         // 2. 포커스된 UI 요소에서 제목 추출
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let focused = focusedRef else { return nil }
+              let focused = focusedRef,
+              CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
         let focusedElem = focused as! AXUIElement
 
-        // 포커스 요소부터 위로 올라가며 파일명처럼 보이는 제목 탐색
         var current: AXUIElement = focusedElem
         for _ in 0..<8 {
             var titleRef: CFTypeRef?
@@ -72,7 +70,8 @@ final class IDEMonitor {
             }
             var parentRef: CFTypeRef?
             guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
-                  let parent = parentRef else { break }
+                  let parent = parentRef,
+                  CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
             current = parent as! AXUIElement
         }
         return nil
@@ -89,10 +88,12 @@ final class IDEMonitor {
 
         switch ide.style {
         case .xcode:
-            // "filename.swift — ProjectName — Xcode" 또는 "filename.swift — ProjectName"
-            let parts = title.components(separatedBy: " \u{2014} ").filter { $0 != "Xcode" }
+            let parts = title.components(separatedBy: " \u{2014} ")
+                .filter { $0 != "Xcode" && $0 != "Edited" }
             if parts.count >= 2 {
-                return Activity(details: "Editing \(parts[0])", state: "In \(parts[1])", ideName: ide.name, largeImage: key)
+                let file = parts.first(where: { $0.contains(".") }) ?? parts[0]
+                let project = parts.first(where: { $0 != file }) ?? parts[1]
+                return Activity(details: "Editing \(file)", state: "In \(project)", ideName: ide.name, largeImage: key)
             } else if parts.count == 1 {
                 return Activity(details: "Coding", state: "In \(parts[0])", ideName: ide.name, largeImage: key)
             }
@@ -110,10 +111,12 @@ final class IDEMonitor {
             }
 
         case .jetbrains:
-            // 구 UI: "file.kt – ProjectName – IDE Name" (en dash)
+            // "file.kt – ProjectName – IDE Name" (en dash) — order varies by IDE version
             let parts = title.components(separatedBy: " \u{2013} ").filter { $0 != ide.name }
             if parts.count >= 2 {
-                return Activity(details: "Editing \(parts[0])", state: "In \(parts[1])", ideName: ide.name, largeImage: key)
+                let file = parts.first(where: { $0.contains(".") }) ?? parts[0]
+                let project = parts.first(where: { $0 != file }) ?? parts[1]
+                return Activity(details: "Editing \(file)", state: "In \(project)", ideName: ide.name, largeImage: key)
             }
             // 신 UI: 창 제목이 프로젝트명만 있을 때 → AX로 파일명 보완
             if parts.count == 1 {
